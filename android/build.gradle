@@ -1,5 +1,3 @@
-classpath 'com.android.tools.build:gradle:8.0.2'  // Latest stable version
-
 allprojects {
     repositories {
         google()

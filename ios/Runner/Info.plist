@@ -45,5 +45,17 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+    <string>We need your permission to use Bluetooth</string>
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>We need your permission to use Bluetooth</string>
+    <key>NSLocationAlwaysUsageDescription</key>
+    <string>We need your permission to access your location</string>
+    <key>NSLocationWhenInUseUsageDescription</key>
+    <string>We need your permission to access your location</string>
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>Need BLE  peripheral access</string>
+    <key>NSAppleMusicUsageDescription</key>
+    <string>This app needs access to play audio from your media library.</string>
 </dict>
 </plist>

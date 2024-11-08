@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:find_my_device/services/BluetoothService.dart';
+import 'package:find_my_device/services/bluetooth_service.dart';
 
 class SavedPacketsPage extends StatelessWidget {
   final BluetoothService bluetoothService;

@@ -3,7 +3,7 @@ import 'package:find_my_device/pages/SavedPacketsPage.dart';
 import 'package:find_my_device/services/bluetooth_service.dart';
 import 'package:find_my_device/services/location_service.dart';
 import 'package:find_my_device/services/audio_service.dart';
-import 'package:find_my_device/services/ApiService.dart';
+import 'package:find_my_device/services/api_service.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart' as flutter_blue;
 
 void main() {
@@ -22,16 +22,18 @@ class _FindMyDeviceAppState extends State<FindMyDeviceApp> {
   final ApiService _apiService = ApiService();
 
   List<flutter_blue.ScanResult> _nearbyDevices = [];
+  List<Map<String, dynamic>> _savedPackets = [];
 
   @override
   void initState() {
     super.initState();
     _initializeServices();
+    _fetchSavedPackets();
   }
 
   Future<void> _initializeServices() async {
+    await _bluetoothService.startPeriodicScanning();
     await _bluetoothService.startPeriodicAdvertising();
-    await _bluetoothService.startScanning();
     _bluetoothService.scanResults.listen((result) {
       setState(() {
         _nearbyDevices.add(result);
@@ -51,16 +53,16 @@ class _FindMyDeviceAppState extends State<FindMyDeviceApp> {
     };
     await _apiService.uploadDeviceData(data);
   }
-
+/*
   Future<void> _triggerAudioPlayback(String deviceId) async {
     await _apiService.triggerAudioPlayback(deviceId);
   }
+*/
 
-  Future<void> displaySavedPackets() async {
+  Future<void> _fetchSavedPackets() async {
     final savedPackets = await _bluetoothService.getSavedPackets();
-    savedPackets.forEach((packet) {
-      print(
-          'Device: ${packet['deviceId']} at ${packet['location']} at ${packet['timestamp']}');
+    setState(() {
+      _savedPackets = savedPackets;
     });
   }
 
@@ -73,19 +75,13 @@ class _FindMyDeviceAppState extends State<FindMyDeviceApp> {
           children: [
             Expanded(
               child: ListView.builder(
-                itemCount: _nearbyDevices.length,
+                itemCount: _savedPackets.length,
                 itemBuilder: (context, index) {
-                  final device = _nearbyDevices[index].device;
+                  final packet = _savedPackets[index];
                   return ListTile(
-                    title: Text(device.platformName.isNotEmpty
-                        ? device.platformName
-                        : 'Unknown Device'),
-                    subtitle: Text(device.remoteId.toString()),
-                    trailing: ElevatedButton(
-                      onPressed: () =>
-                          _triggerAudioPlayback(device.remoteId.toString()),
-                      child: Text('Play Sound'),
-                    ),
+                    title: Text('Device: ${packet['deviceId']}'),
+                    subtitle: Text(
+                        'Location: ${packet['location']['latitude']}, ${packet['location']['longitude']} at ${packet['timestamp']}'),
                   );
                 },
               ),
@@ -95,8 +91,7 @@ class _FindMyDeviceAppState extends State<FindMyDeviceApp> {
                 onPressed: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (context) =>
-                          SavedPacketsPage(bluetoothService: _bluetoothService),
+                      builder: (context) => SavedPacketsPage(bluetoothService: _bluetoothService,),
                     ),
                   );
                 },

@@ -1,9 +1,9 @@
+import 'package:find_my_device/database/database_helper.dart';
 import 'package:find_my_device/services/location_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:geolocator/geolocator.dart';
 import 'dart:async';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
 
@@ -12,8 +12,10 @@ class BluetoothService {
   StreamController<ScanResult> _scanResultsController = StreamController<ScanResult>.broadcast();
   static const platform = MethodChannel('com.example.find_my_device/bluetooth');
   Stream<ScanResult> get scanResults => _scanResultsController.stream;
+  final DatabaseHelper _databaseHelper = DatabaseHelper.instance;
   final LocationService _locationService = LocationService();
   Timer? _advertisingTimer;
+  Timer? _scanningTimer;
 
   Future<void> startPeriodicAdvertising() async {
     // Start initial advertising
@@ -34,13 +36,13 @@ class BluetoothService {
     }
   }
 
-  Future<void> startScanning() async {
+  Future<void> startScanning({Duration duration = const Duration(seconds:10)}) async {
     if (await FlutterBluePlus.isSupported) {
-      FlutterBluePlus.startScan(timeout: Duration(seconds: 4));
+      FlutterBluePlus.startScan(timeout: duration, );
       FlutterBluePlus.scanResults.listen((results) {
         for (ScanResult r in results) {
           _scanResultsController.add(r);
-          saveAdvertisedPacket(r);
+          savedPackets(r);
         }
       });
     } else {
@@ -48,7 +50,22 @@ class BluetoothService {
     }
   }
 
-  Future<void> saveAdvertisedPacket(ScanResult scanResult) async {
+  Future<void> startPeriodicScanning({Duration interval = const Duration(minutes: 1)}) async {
+    // Start initial scanning
+    await startScanning();
+
+    // Set up timer for periodic scanning
+    _scanningTimer = Timer.periodic(interval, (timer) async {
+      await startScanning();
+    });
+  }
+
+  void stopPeriodicScanning() {
+    _scanningTimer?.cancel();
+    _scanningTimer = null;
+  }
+
+  Future<void> savedPackets(ScanResult scanResult) async {
     try {
       final Position position = await _locationService.getCurrentLocation();
       final packetData = {
@@ -67,11 +84,8 @@ class BluetoothService {
         }
       };
 
-      final prefs = await SharedPreferences.getInstance();
-      List<String> savedPackets = prefs.getStringList('advertisedPackets') ?? [];
-      savedPackets.add(jsonEncode(packetData));
-      await prefs.setStringList('advertisedPackets', savedPackets);
 
+      await _databaseHelper.insertPacket(packetData);
       print('Packet saved successfully: ${packetData['deviceId']}');
     } catch (e) {
       print('Error saving packet: $e');
@@ -84,15 +98,12 @@ class BluetoothService {
   }
 
   Future<List<Map<String, dynamic>>> getSavedPackets() async {
-    final prefs = await SharedPreferences.getInstance();
-    List<String> savedPackets = prefs.getStringList('advertisedPackets') ?? [];
-    return savedPackets.map((packet) =>
-    Map<String, dynamic>.from(jsonDecode(packet))
-    ).toList();
+   return await _databaseHelper.getPackets();
   }
 
   void dispose() {
     stopPeriodicAdvertising();
+    stopPeriodicScanning();
     _scanResultsController.close();
   }
 }

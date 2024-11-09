@@ -14,6 +14,8 @@ class BluetoothService {
   Stream<ScanResult> get scanResults => _scanResultsController.stream;
   final DatabaseHelper _databaseHelper = DatabaseHelper.instance;
   final LocationService _locationService = LocationService();
+  final _packetStreamController = StreamController<List<Map<String, dynamic>>>.broadcast();
+  Stream<List<Map<String, dynamic>>> get packetStream => _packetStreamController.stream;
   Timer? _advertisingTimer;
   Timer? _scanningTimer;
 
@@ -87,6 +89,8 @@ class BluetoothService {
 
       await _databaseHelper.insertPacket(packetData);
       print('Packet saved successfully: ${packetData['deviceId']}');
+      final allpackets = await getSavedPackets();
+      _packetStreamController.add(allpackets);
     } catch (e) {
       print('Error saving packet: $e');
     }
@@ -105,5 +109,6 @@ class BluetoothService {
     stopPeriodicAdvertising();
     stopPeriodicScanning();
     _scanResultsController.close();
+    _packetStreamController.close();
   }
 }

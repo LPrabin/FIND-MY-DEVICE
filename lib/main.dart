@@ -1,3 +1,4 @@
+import 'package:find_my_device/services/Device_location_map.dart';
 import 'package:flutter/material.dart';
 import 'package:find_my_device/pages/SavedPacketsPage.dart';
 import 'package:find_my_device/services/bluetooth_service.dart';
@@ -71,35 +72,9 @@ class _FindMyDeviceAppState extends State<FindMyDeviceApp> {
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(title: Text('Find My Device')),
-        body: Column(
-          children: [
-            Expanded(
-              child: ListView.builder(
-                itemCount: _savedPackets.length,
-                itemBuilder: (context, index) {
-                  final packet = _savedPackets[index];
-                  return ListTile(
-                    title: Text('Device: ${packet['deviceId']}'),
-                    subtitle: Text(
-                        'Location: ${packet['location']['latitude']}, ${packet['location']['longitude']} at ${packet['timestamp']}'),
-                  );
-                },
-              ),
-            ),
-            Builder(
-              builder: (context) => ElevatedButton(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (context) => SavedPacketsPage(bluetoothService: _bluetoothService,),
-                    ),
-                  );
-                },
-                child: Text('View Saved Packets'),
-              ),
-            ),
-          ],
-        ),
+        body: DeviceLocationMap(
+          packetsStream: _bluetoothService.packetStream,
+        )
       ),
     );
   }

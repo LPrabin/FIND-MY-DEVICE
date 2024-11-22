@@ -15,12 +15,21 @@ extension BluetoothAdvertiser: CBPeripheralManagerDelegate {
                 CBAdvertisementDataServiceUUIDsKey: [CBUUID(string: "1234")],
                 CBAdvertisementDataLocalNameKey: "Find My Device"
             ] as [String : Any]
+
+
+              
             peripheral.startAdvertising(advertisementData)
+            SwiftBluetoothPlugin.channel.invokeMethod("advertisementData", arguments: advertisementData)
+
+                    
         }
     }
 }
 
 @objc class SwiftBluetoothPlugin: NSObject, FlutterPlugin {
+    static var channel: FlutterMethodChannel!
+    private var bluetoothAdvertiser: BluetoothAdvertiser?
+
     @objc(registerWithRegistrar:) static func register(with registrar: FlutterPluginRegistrar) {
         let channel = FlutterMethodChannel(name: "com.example.find_my_device/bluetooth", binaryMessenger: registrar.messenger())
         let instance = SwiftBluetoothPlugin()
@@ -30,6 +39,7 @@ extension BluetoothAdvertiser: CBPeripheralManagerDelegate {
     @objc(handleMethodCall:result:) func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
         if call.method == "startAdvertising" {
             BluetoothAdvertiser().startAdvertising()
+            
             result(nil)
         } else {
             result(FlutterMethodNotImplemented)

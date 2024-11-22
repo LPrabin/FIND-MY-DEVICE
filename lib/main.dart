@@ -1,95 +1,294 @@
-import 'package:find_my_device/services/Device_location_map.dart';
+import 'dart:async';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:find_my_device/widgets/location_history_page.dart';
+import 'package:find_my_device/widgets/login_widget.dart';
+import 'package:find_my_device/widgets/registration_widget.dart';
 import 'package:flutter/material.dart';
-import 'package:find_my_device/pages/SavedPacketsPage.dart';
 import 'package:find_my_device/services/bluetooth_service.dart';
 import 'package:find_my_device/services/location_service.dart';
 import 'package:find_my_device/services/audio_service.dart';
 import 'package:find_my_device/services/api_service.dart';
+import 'package:find_my_device/widgets/device_map_view.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart' as flutter_blue;
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'database/database_helper.dart';
 
 void main() {
   runApp(FindMyDeviceApp());
 }
 
-class FindMyDeviceApp extends StatefulWidget {
+class FindMyDeviceApp extends StatelessWidget {
   @override
-  _FindMyDeviceAppState createState() => _FindMyDeviceAppState();
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Find My Device',
+      initialRoute: '/',
+      routes: {
+        '/': (context) => AuthenticationWrapper(),
+        '/login': (context) => LoginWidget(),
+        '/register': (context) => RegistrationWidget(),
+        '/home': (context) => HomeScreen(),
+      },
+    );
+  }
 }
 
-class _FindMyDeviceAppState extends State<FindMyDeviceApp> {
+class AuthenticationWrapper extends StatelessWidget {
+  final ApiService _apiService = ApiService();
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<bool>(
+      future: _checkAuthentication(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        if (snapshot.data == true) {
+          return HomeScreen();
+        }
+
+        return LoginWidget();
+      },
+    );
+  }
+
+  Future<bool> _checkAuthentication() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('auth_token');
+    return token != null;
+  }
+}
+
+
+
+class HomeScreen extends StatefulWidget {
+  @override
+  _HomeScreenState createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
   final BluetoothService _bluetoothService = BluetoothService();
   final LocationService _locationService = LocationService();
   final AudioService _audioService = AudioService();
   final ApiService _apiService = ApiService();
+  final DatabaseHelper _databaseHelper = DatabaseHelper();
 
-  List<flutter_blue.ScanResult> _nearbyDevices = [];
-  List<Map<String, dynamic>> _savedPackets = [];
 
+  String? deviceId;
+  String? deviceName;
+  bool _isLoading = true;
+  bool _isMapView = false;
+  List<Map<String, dynamic>> _savedDevices = [];
+  Timer? _uploadTimer;
   @override
   void initState() {
     super.initState();
     _initializeServices();
-    _fetchSavedPackets();
+
   }
 
   Future<void> _initializeServices() async {
-    await _bluetoothService.startPeriodicScanning();
-    await _bluetoothService.startPeriodicAdvertising();
-    _bluetoothService.scanResults.listen((result) {
-      setState(() {
-        _nearbyDevices.add(result);
+    try {
+      await _bluetoothService.startPeriodicScanning();
+      await _bluetoothService.startPeriodicAdvertising();
+
+      await _loadSavedDevices();
+
+      Timer.periodic(const Duration(seconds: 10), (_) async {
+        final position = await _locationService.getCurrentLocation();
+        final savedDevices = await _databaseHelper.getPendingDeviceData();
+
+        for (var device in savedDevices) {
+          await _apiService.uploadDeviceData({
+            'device_id': device['device_id'],
+            'rssi': device['rssi'],
+            'latitude': position.latitude,
+            'longitude': position.longitude,
+            'timestamp': DateTime.now().toIso8601String(),
+            'service_uuids': device['service_uuids'],
+            'manufacturer_data': device['manufacturer_data'],
+            'device_name': device['device_name']
+          });
+        }
       });
-      _uploadDeviceData(result);
-    });
+
+      // Store scan results in database instead of direct upload
+      _bluetoothService.scanResults.listen((result) async {
+
+      });
+
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error initializing services: $e')),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
-  Future<void> _uploadDeviceData(flutter_blue.ScanResult result) async {
-    final position = await _locationService.getCurrentLocation();
-    final data = {
-      'deviceId': result.device.remoteId.toString(),
-      'rssi': result.rssi,
-      'latitude': position.latitude,
-      'longitude': position.longitude,
-      'timestamp': DateTime.now().toIso8601String(),
-    };
-    await _apiService.uploadDeviceData(data);
-  }
-/*
-  Future<void> _triggerAudioPlayback(String deviceId) async {
-    await _apiService.triggerAudioPlayback(deviceId);
-  }
-*/
 
-  Future<void> _fetchSavedPackets() async {
-    final savedPackets = await _bluetoothService.getSavedPackets();
-    setState(() {
-      _savedPackets = savedPackets;
-    });
+  Future<void> _loadSavedDevices() async {
+    try {
+      final devices = await _apiService.getDevices(); // Implement this method in ApiService
+      setState(() {
+        _savedDevices = devices;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading devices: $e')),
+      );
+    }
   }
 
-  @override
+
+
+  Future<void> _logout() async {
+    try {
+      // Clear local storage
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(ApiService.AUTH_TOKEN_KEY); // Remove auth token
+
+      // Navigate to login screen
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        '/login',
+            (Route<dynamic> route) => false, // Remove all previous routes
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error during logout: $e')),
+      );
+    }
+  }
+
+
+
+
+      @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(title: Text('Find My Device')),
-        body: DeviceLocationMap(
-          packetsStream: _bluetoothService.packetStream,
-        )
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Find My Device'),
+        actions: [
+          IconButton(
+            icon: Icon(_isMapView ? Icons.list : Icons.map),
+            onPressed: () {
+              setState(() {
+                _isMapView = !_isMapView;
+              });
+            },
+          ),
+
+          IconButton(
+            icon: Icon(Icons.logout),
+            onPressed: _logout,
+          ),
+
+
+        ],
+      ),
+      body: _isLoading
+          ? Center(child: CircularProgressIndicator())
+          : _isMapView
+          ? DeviceMapView(devices: _savedDevices)
+          : ListView.builder(
+        itemCount: _savedDevices.length,
+        itemBuilder: (context, index) {
+        final device = _savedDevices[index];
+        if (device['device_name'] != null && device['device_name'].toString().isNotEmpty) {
+          return ListTile(
+            title: Text(device['device_name']),
+            subtitle: Text(
+                'Last seen: ${device['timestamp']}\nRSSI: ${device['rssi']}'),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.notifications_active),
+                  onPressed: () => _triggerAudioPlayback(device['device_id']),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.location_history),
+                  onPressed: () =>
+                      _showDeviceLocationHistory(
+                          device['device_id'], device['device_name']),
+                ),
+              ],
+            ),
+          );
+        }
+        return Container();
+        },
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _loadSavedDevices,
+        child: Icon(Icons.refresh),
+        tooltip: 'Refresh Devices',
       ),
     );
   }
 
+
+
+
+  Future<void> _triggerAudioPlayback(String deviceId) async {
+    try {
+      await _apiService.triggerAudioPlayback(deviceId);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Audio playback triggered')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to trigger audio: $e')),
+      );
+    }
+  }
+  Future<void> _showDeviceLocationHistory(String deviceId, String deviceName) async {
+    try {
+      setState(() {
+        _isLoading = true;
+      });
+      final locationHistory = await _apiService.getDeviceLocations(deviceId, deviceName);
+      setState(() {
+        _isLoading = false;
+      });
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => LocationHistoryPage(
+            deviceId: deviceId,
+            deviceName: deviceName,
+            locationHistory: locationHistory,
+          ),
+        ),
+      );
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error loading device location history: $e')),
+      );
+    }
+  }
+
+
   @override
   void dispose() {
+    _uploadTimer?.cancel();
     _bluetoothService.dispose();
     _audioService.dispose();
+
     super.dispose();
   }
 }
-
-
-
-
 
 
 

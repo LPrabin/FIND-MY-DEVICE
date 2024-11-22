@@ -1,79 +1,101 @@
 import 'package:sqflite/sqflite.dart';
-import 'package:path/path.dart';
+import 'package:path/path.dart' show join;
 
 class DatabaseHelper {
-  static final DatabaseHelper instance = DatabaseHelper._init();
+  static final DatabaseHelper _instance = DatabaseHelper._internal();
   static Database? _database;
+  static const _database_version = 1;
 
-  DatabaseHelper._init();
+  factory DatabaseHelper() => _instance;
+
+  DatabaseHelper._internal();
 
   Future<Database> get database async {
     if (_database != null) return _database!;
-    _database = await _initDB('find_my_device.db');
+    _database = await _initDatabase();
     return _database!;
   }
 
-  Future<Database> _initDB(String filePath) async {
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, filePath);
-
+  Future<Database> _initDatabase() async {
+    String path = join(await getDatabasesPath(), 'device_database.db');
     return await openDatabase(
       path,
-      version: 1,
-      onCreate: _createDB,
+      version: _database_version,
+
+      onCreate: (Database db, int version) async {
+        await db.execute('''
+          CREATE TABLE devices(
+            serialNumber INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT ,
+            device_name TEXT DEFAULT 'Unknown',
+            rssi INTEGER,
+            timestamp TEXT,
+            latitude REAL,
+            longitude REAL,
+            serviceUuids TEXT,
+            manufacturerData TEXT,
+            serviceData TEXT,
+            synced INTEGER DEFAULT 0
+          )
+        ''');
+
+      },
+      onUpgrade: _onUpgrade,
+
+
     );
   }
 
-  Future<void> _createDB(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE advertised_packets(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        deviceId TEXT NOT NULL,
-        deviceName TEXT,
-        rssi INTEGER,
-        timestamp TEXT NOT NULL,
-        latitude REAL,
-        longitude REAL,
-        serviceUuids TEXT,
-        manufacturerData TEXT,
-        serviceData TEXT
-      )
-    ''');
+  Future<void> insertOrUpdateDevice(Map<String, dynamic> device) async {
+    final Database db = await database;
+    await db.insert(
+      'devices',
+      device,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
-  Future<int> insertPacket(Map<String, dynamic> packet) async {
+  Future<List<Map<String, dynamic>>> getAllDevices() async {
+    final Database db = await database;
+    return await db.query('devices');
+  }
+
+  Future<Map<String, dynamic>?> getDevice(String device_id) async {
+    final Database db = await database;
+    List<Map<String, dynamic>> results = await db.query(
+      'devices',
+      where: 'device_id = ?',
+      whereArgs: [device_id],
+    );
+    return results.isNotEmpty ? results.first : null;
+  }
+
+  Future<List<Map<String, dynamic>>> getPendingDeviceData() async {
     final db = await database;
-    return await db.insert('advertised_packets', {
-      'deviceId': packet['deviceId'],
-      'deviceName': packet['deviceName'],
-      'rssi': packet['rssi'],
-      'timestamp': packet['timestamp'],
-      'latitude': packet['location']['latitude'],
-      'longitude': packet['location']['longitude'],
-      'serviceUuids': packet['advertisementData']['serviceUuids'].toString(),
-      'manufacturerData': packet['advertisementData']['manufacturerData'],
-      'serviceData': packet['advertisementData']['serviceData'],
-    });
+    return await db.query(
+      'devices',
+      where: 'synced = ?',
+      whereArgs: [0], // 0 means not synced
+    );
   }
 
-  Future<List<Map<String, dynamic>>> getPackets() async {
+  Future<void> markDataAsSynced(int serialNumber) async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query('advertised_packets');
-
-    return maps.map((packet) => {
-      'deviceId': packet['deviceId'],
-      'deviceName': packet['deviceName'],
-      'rssi': packet['rssi'],
-      'timestamp': packet['timestamp'],
-      'location': {
-        'latitude': packet['latitude'],
-        'longitude': packet['longitude'],
-      },
-      'advertisementData': {
-        'serviceUuids': packet['serviceUuids'],
-        'manufacturerData': packet['manufacturerData'],
-        'serviceData': packet['serviceData'],
-      }
-    }).toList();
+    await db.update(
+      'devices',
+      {'synced': 1},
+      where: 'serialNumber = ?',
+      whereArgs: [serialNumber],
+    );
   }
+
+
+  Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+
+    }
+  }
+
+
+
 }

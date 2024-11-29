@@ -14,6 +14,7 @@ class DeviceMapView extends StatefulWidget {
 class _DeviceMapViewState extends State<DeviceMapView> {
   late GoogleMapController mapController;
   Map<MarkerId, Marker> markers = {};
+  Set<Polyline> _polylines = {};
 
   final LocationSmoother _smoother = LocationSmoother();
   final KalmanFilter _kalmanFilter = KalmanFilter();
@@ -22,8 +23,28 @@ class _DeviceMapViewState extends State<DeviceMapView> {
   void initState() {
     super.initState();
     _createMarkers(widget.devices);
+    _createPolylines();
   }
 
+  void _createPolylines() {
+    if (widget.devices.isEmpty) return;
+
+    List<LatLng> polylineCoordinates = widget.devices.map((device) {
+      return LatLng(
+          device['latitude'] as double,
+          device['longitude'] as double
+      );
+    }).toList();
+
+    _polylines.add(
+      Polyline(
+        polylineId: PolylineId('device_path'),
+        points: polylineCoordinates,
+        color: Colors.blue,
+        width: 3,
+      ),
+    );
+  }
   void _createMarkers(List<Map<String, dynamic>> devices) {
 
     devices.forEach((device) {
@@ -79,6 +100,7 @@ class _DeviceMapViewState extends State<DeviceMapView> {
         zoom: 12,
       ),
       markers: Set<Marker>.of(markers.values),
+      polylines: _polylines,
       onMapCreated: (GoogleMapController controller) {
         mapController = controller;
       },
